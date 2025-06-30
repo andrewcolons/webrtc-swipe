@@ -1,180 +1,124 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <title>SwipeRush Matchmaking</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Swipe Rush</title>
+  <script src="/socket.io/socket.io.js"></script>
   <style>
-    body { background: #121212; color: #eee; font-family: Arial, sans-serif; padding: 20px; }
-    label, select, input, button { display: block; margin: 8px 0; font-size: 1rem; }
-    #videoSection { margin-top: 20px; }
-    video { width: 300px; height: 225px; background: black; margin-right: 10px; }
-    #chatArea { margin-top: 10px; max-width: 620px; }
-    #messages { border: 1px solid #555; height: 150px; overflow-y: auto; padding: 5px; background: #222; }
-    #chatInput { width: 80%; padding: 8px; margin-top: 5px; }
-    #sendBtn, #skipBtn { padding: 8px 16px; margin-top: 10px; cursor: pointer; background-color: #1e90ff; border: none; color: white; border-radius: 4px; }
-    #sendBtn:hover, #skipBtn:hover { background-color: #0c6cd4; }
+    /* Basic styling for page layout */
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f0f0f0; }
+    .container { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 0 15px rgba(0, 0, 0, 0.1); width: 350px; text-align: center; }
+    h1 { margin-bottom: 20px; font-size: 28px; }
+    label, input, select, button { margin-top: 10px; width: 100%; padding: 10px; margin-bottom: 15px; }
+    video { width: 45%; height: auto; margin: 5px; }
+    #videoChat { display: none; }
+    button { background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:disabled { background-color: #ccc; }
   </style>
 </head>
 <body>
-  <h1>SwipeRush Matchmaking</h1>
 
-  <form id="matchForm">
-    <label>Your Gender:</label>
-    <select id="yourGender" required>
-      <option value="">-- Select --</option>
-      <option value="male">Male</option>
-      <option value="female">Female</option>
-      <option value="nonbinary">Non-binary</option>
-    </select>
+  <div class="container">
+    <h1>Swipe Rush</h1>
 
-    <label>Looking For:</label>
-    <select id="lookingFor" required>
-      <option value="">-- Select --</option>
-      <option value="male">Male</option>
-      <option value="female">Female</option>
-      <option value="any">Any</option>
-    </select>
+    <!-- User Profile Form -->
+    <form id="profileForm">
+      <label for="gender">Gender:</label>
+      <select id="gender" name="gender">
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="non-binary">Non-binary</option>
+      </select>
 
-    <label>Country:</label>
-    <select id="country" required>
-      <option value="">-- Select --</option>
-      <option value="United States">United States</option>
-      <option value="India">India</option>
-      <option value="Japan">Japan</option>
-      <option value="United Kingdom">United Kingdom</option>
-      <option value="Canada">Canada</option>
-      <option value="Germany">Germany</option>
-      <option value="France">France</option>
-      <option value="Australia">Australia</option>
-    </select>
+      <label for="preferredGender">Preferred Gender:</label>
+      <select id="preferredGender" name="preferredGender">
+        <option value="male">Male</option>
+        <option value="female">Female</option>
+        <option value="non-binary">Non-binary</option>
+        <option value="either">Either</option>
+      </select>
 
-    <button type="submit">Start Chat</button>
-  </form>
+      <label for="country">Country:</label>
+      <select id="country" name="country">
+        <option value="US">United States</option>
+        <option value="CA">Canada</option>
+        <option value="GB">United Kingdom</option>
+        <option value="AU">Australia</option>
+        <option value="IN">India</option>
+        <option value="DE">Germany</option>
+        <option value="FR">France</option>
+        <option value="BR">Brazil</option>
+        <option value="RU">Russia</option>
+        <option value="MX">Mexico</option>
+      </select>
 
-  <div id="videoSection" style="display:none;">
-    <h2 id="statusText">Connecting...</h2>
-    <video id="localVideo" autoplay playsinline muted></video>
-    <video id="remoteVideo" autoplay playsinline></video>
-    <br />
-    <button id="skipBtn">Skip</button>
+      <button type="submit">Find Match</button>
+    </form>
 
-    <div id="chatArea">
-      <div id="messages"></div>
-      <input id="chatInput" placeholder="Type a message..." />
-      <button id="sendBtn">Send</button>
+    <h2 id="matchMessage" style="display: none;"></h2>
+
+    <!-- Video chat area (hidden initially) -->
+    <div id="videoChat">
+      <video id="userVideo" autoplay></video>
+      <video id="matchVideo" autoplay></video>
+      <button id="skipButton">Skip</button>
     </div>
   </div>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/simple-peer@9/simplepeer.min.js"></script>
   <script>
-    const form = document.getElementById('matchForm');
-    const videoSection = document.getElementById('videoSection');
-    const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
-    const statusText = document.getElementById('statusText');
-    const skipBtn = document.getElementById('skipBtn');
-    const messages = document.getElementById('messages');
-    const chatInput = document.getElementById('chatInput');
-    const sendBtn = document.getElementById('sendBtn');
+    const socket = io();
+    const form = document.getElementById('profileForm');
+    const matchMessage = document.getElementById('matchMessage');
+    const videoChat = document.getElementById('videoChat');
+    const userVideo = document.getElementById('userVideo');
+    const matchVideo = document.getElementById('matchVideo');
+    const skipButton = document.getElementById('skipButton');
 
-    let socket = io();
-    let peer;
-    let room;
-    let isInitiator = false;
+    let localStream;
+    let peerConnection;
+    let matchSocketId;
 
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
+    const config = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }
+      ]
+    };
 
-      const yourGender = document.getElementById('yourGender').value;
-      const lookingFor = document.getElementById('lookingFor').value;
+    // Handle form submission
+    form.addEventListener('submit', function(event) {
+      event.preventDefault();
+      
+      const gender = document.getElementById('gender').value;
+      const preferredGender = document.getElementById('preferredGender').value;
       const country = document.getElementById('country').value;
 
-      if (!yourGender || !lookingFor || !country) {
-        alert('Please select all fields.');
-        return;
-      }
+      socket.emit('user-form', { gender, preferredGender, country });
 
-      // Compose room ID using filters
-      room = `${country}_${lookingFor}`;
-
-      socket.emit('join-room', room);
-
-      form.style.display = 'none';
-      videoSection.style.display = 'block';
-      statusText.textContent = 'Waiting for a partner...';
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        localVideo.srcObject = stream;
-
-        peer = new SimplePeer({
-          initiator: false,
-          trickle: false,
-          stream: stream
-        });
-
-        peer.on('signal', data => {
-          socket.emit('signal', { room, data });
-        });
-
-        peer.on('stream', stream => {
-          remoteVideo.srcObject = stream;
-        });
-
-        peer.on('error', err => {
-          console.error(err);
-          statusText.textContent = 'Error: ' + err.message;
-        });
-
-        peer.on('close', () => {
-          statusText.textContent = 'Partner disconnected';
-          remoteVideo.srcObject = null;
-        });
-
-        socket.on('room-ready', () => {
-          statusText.textContent = 'Connected';
-          if (!isInitiator) {
-            isInitiator = true;
-            peer.initiator = true;
-            peer.signal();
-          }
-        });
-
-        socket.on('signal', ({ data }) => {
-          peer.signal(data);
-        });
-
-      } catch (err) {
-        console.error('Error accessing media devices:', err);
-        alert('Could not access camera/mic.');
-      }
+      matchMessage.textContent = 'Searching for a match...';
+      matchMessage.style.display = 'block';
     });
 
-    skipBtn.addEventListener('click', () => {
-      if (peer) {
-        peer.destroy();
-        peer = null;
-      }
-      if (localVideo.srcObject) {
-        localVideo.srcObject.getTracks().forEach(track => track.stop());
-        localVideo.srcObject = null;
-      }
-      remoteVideo.srcObject = null;
-      statusText.textContent = 'Skipping...';
-      videoSection.style.display = 'none';
-      form.style.display = 'block';
-      socket.emit('leave-room', room);
-      isInitiator = false;
+    // Handle match found and start video chat
+    socket.on('match-found', (data) => {
+      matchSocketId = data.matchId;
+      matchMessage.textContent = 'Match found! Connecting...';
+      matchMessage.style.display = 'block';
+
+      videoChat.style.display = 'block';
+      startWebcam();
+      createPeerConnection();
     });
 
-    sendBtn.addEventListener('click', () => {
-      const msg = chatInput.value.trim();
-      if (!msg) return;
-      messages.innerHTML += `<div><b>You:</b> ${msg}</div>`;
-      chatInput.value = '';
-      // TODO: Add sending chat via socket here later
+    // No match found
+    socket.on('no-match', () => {
+      matchMessage.textContent = 'No match found, please try again later.';
     });
-  </script>
-</body>
-</html>
 
+    // Start webcam and show the user's video
+    function startWebcam() {
+      navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        .then(stream => {
+          userVideo.srcObject = stream;
+          localStream = stream;
+        })
