@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SwipeRush Matchmaking</title>
+  <style>
+    body { background: #121212; color: #eee; font-family: Arial, sans-serif; padding: 20px; }
+    label, select, input, button { display: block; margin: 8px 0; font-size: 1rem; }
+    #videoSection { margin-top: 20px; }
+    video { width: 300px; height: 225px; background: black; margin-right: 10px; }
+    #chatArea { margin-top: 10px; max-width: 620px; }
+    #messages { border: 1px solid #555; height: 150px; overflow-y: auto; padding: 5px; background: #222; }
+    #chatInput { width: 80%; padding: 8px; margin-top: 5px; }
+    #sendBtn, #skipBtn { padding: 8px 16px; margin-top: 10px; cursor: pointer; background-color: #1e90ff; border: none; color: white; border-radius: 4px; }
+    #sendBtn:hover, #skipBtn:hover { background-color: #0c6cd4; }
+  </style>
+</head>
+<body>
+  <h1>SwipeRush Matchmaking</h1>
+
+  <form id="matchForm">
+    <label>Your Gender:</label>
+    <select id="yourGender" required>
+      <option value="">-- Select --</option>
+      <option value="male">Male</option>
+      <option value="female">Female</option>
+      <option value="nonbinary">Non-binary</option>
+    </select>
+
+    <label>Looking For:</label>
+    <select id="lookingFor" required>
+      <option value="">-- Select --</option>
+      <option value="male">Male</option>
+      <option value="female">Female</option>
+      <option value="any">Any</option>
+    </select>
+
+    <label>Country:</label>
+    <select id="country" required>
+      <option value="">-- Select --</option>
+      <option value="United States">United States</option>
+      <option value="India">India</option>
+      <option value="Japan">Japan</option>
+      <option value="United Kingdom">United Kingdom</option>
+      <option value="Canada">Canada</option>
+      <option value="Germany">Germany</option>
+      <option value="France">France</option>
+      <option value="Australia">Australia</option>
+    </select>
+
+    <button type="submit">Start Chat</button>
+  </form>
+
+  <div id="videoSection" style="display:none;">
+    <h2 id="statusText">Connecting...</h2>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <video id="remoteVideo" autoplay playsinline></video>
+    <br />
+    <button id="skipBtn">Skip</button>
+
+    <div id="chatArea">
+      <div id="messages"></div>
+      <input id="chatInput" placeholder="Type a message..." />
+      <button id="sendBtn">Send</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/simple-peer@9/simplepeer.min.js"></script>
+  <script>
+    const form = document.getElementById('matchForm');
+    const videoSection = document.getElementById('videoSection');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const statusText = document.getElementById('statusText');
+    const skipBtn = document.getElementById('skipBtn');
+    const messages = document.getElementById('messages');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    let socket = io();
+    let peer;
+    let room;
+    let isInitiator = false;
+
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+
+      const yourGender = document.getElementById('yourGender').value;
+      const lookingFor = document.getElementById('lookingFor').value;
+      const country = document.getElementById('country').value;
+
+      if (!yourGender || !lookingFor || !country) {
+        alert('Please select all fields.');
+        return;
+      }
+
+      // Compose room ID using filters
+      room = `${country}_${lookingFor}`;
+
+      socket.emit('join-room', room);
+
+      form.style.display = 'none';
+      videoSection.style.display = 'block';
+      statusText.textContent = 'Waiting for a partner...';
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localVideo.srcObject = stream;
+
+        peer = new SimplePeer({
+          initiator: false,
+          trickle: false,
+          stream: stream
+        });
+
+        peer.on('signal', data => {
+          socket.emit('signal', { room, data });
+        });
+
+        peer.on('stream', stream => {
+          remoteVideo.srcObject = stream;
+        });
+
+        peer.on('error', err => {
+          console.error(err);
+          statusText.textContent = 'Error: ' + err.message;
+        });
+
+        peer.on('close', () => {
+          statusText.textContent = 'Partner disconnected';
+          remoteVideo.srcObject = null;
+        });
+
+        socket.on('room-ready', () => {
+          statusText.textContent = 'Connected';
+          if (!isInitiator) {
+            isInitiator = true;
+            peer.initiator = true;
+            peer.signal();
+          }
+        });
+
+        socket.on('signal', ({ data }) => {
+          peer.signal(data);
+        });
+
+      } catch (err) {
+        console.error('Error accessing media devices:', err);
+        alert('Could not access camera/mic.');
+      }
+    });
+
+    skipBtn.addEventListener('click', () => {
+      if (peer) {
+        peer.destroy();
+        peer = null;
+      }
+      if (localVideo.srcObject) {
+        localVideo.srcObject.getTracks().forEach(track => track.stop());
+        localVideo.srcObject = null;
+      }
+      remoteVideo.srcObject = null;
+      statusText.textContent = 'Skipping...';
+      videoSection.style.display = 'none';
+      form.style.display = 'block';
+      socket.emit('leave-room', room);
+      isInitiator = false;
+    });
+
+    sendBtn.addEventListener('click', () => {
+      const msg = chatInput.value.trim();
+      if (!msg) return;
+      messages.innerHTML += `<div><b>You:</b> ${msg}</div>`;
+      chatInput.value = '';
+      // TODO: Add sending chat via socket here later
+    });
+  </script>
+</body>
+</html>
+
